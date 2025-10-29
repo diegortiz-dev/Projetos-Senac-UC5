@@ -1,7 +1,8 @@
 import customtkinter
 from PIL import Image
 import datetime
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from conexao import conectar_banco
 from main import Livro, Leitor, Emprestimo, ListaLivros, ListaLeitores
 
 lista_livros = ListaLivros("TELivraria")
@@ -10,6 +11,42 @@ lista_emprestimos = []
 capa_livro_path = None
 livro_selecionado = None
 leitor_selecionado = None
+
+
+def mostrar_frame_leitores_carregando():
+    mostrar_frame_leitores()
+    carregar_leitores_do_banco()
+    
+def carregar_leitores_do_banco():
+    for i in frame_resultados_leitores.winfo_children():
+        i.destroy()
+
+    try:
+        conexao = conectar_banco()
+        cursor = conexao.cursor()
+        cursor.execute("SELECT id, nome, telefone FROM leitores")
+        resultados = cursor.fetchall()
+
+        for resultado in resultados:
+            leitor = Leitor(
+                id=str(resultado[0]),
+                nome=resultado[1],
+                telefone=resultado[2]
+            )
+            lista_leitores.cadastrarleitor(leitor)
+            criar_card_leitor(leitor, frame_resultados_leitores)
+
+        cursor.close()
+        conexao.close()
+    except Exception as e:
+        print(f"Erro ao carregar leitores do banco: {e}")
+
+
+def gerar_proximo_id():
+    if not lista_leitores.listaleitores:
+        return "1" 
+    ids = [int(leitor.id) for leitor in lista_leitores.listaleitores]
+    return str(max(ids) + 1)
 
 customtkinter.set_appearance_mode("System")
 customtkinter.set_default_color_theme("blue")
@@ -120,7 +157,8 @@ botao_leitores = customtkinter.CTkButton(
     corner_radius=30,
     fg_color="#003e7e",
     bg_color="#001126",
-    command=mostrar_frame_leitores
+    command=mostrar_frame_leitores_carregando
+    
 )
 botao_leitores.grid(row=0, column=3, pady=20, padx=20, sticky="w")
 
@@ -384,21 +422,6 @@ telefone_leitor = customtkinter.CTkEntry(
 )
 telefone_leitor.grid(row=1, column=0, pady=20, padx=20, sticky="w", columnspan=2)
 
-id_leitor = customtkinter.CTkEntry(
-    master=frame_cadastro_leitores,
-    width=600,
-    height=70,
-    placeholder_text="ID Leitor",
-    font=("Libre Baskerville", 24),
-    corner_radius=20,
-    fg_color="#d9d9d9",
-    border_color="#001126",
-    border_width=2,
-    text_color="#001126",
-    placeholder_text_color="#808080"
-)
-id_leitor.grid(row=2, column=0, pady=20, padx=20, sticky="w", columnspan=2)
-
 botao_cadastrar_leitor = customtkinter.CTkButton(
     master=frame_cadastro_leitores,
     text="Cadastrar Leitor",
@@ -651,7 +674,7 @@ def criar_card_leitor(leitor, master):
     
     customtkinter.CTkLabel(
         master=frame_card,
-        text=f"ID:{leitor.id_leitor}",
+        text=f"ID:{leitor.id}",
         font=("Libre Baskerville", 16),
         text_color="#001126"
     ).place(x=20, y=80)
@@ -771,8 +794,6 @@ def editar_leitor(leitor):
     nome_leitor.insert(0, leitor.nome)
     telefone_leitor.delete(0, 'end')
     telefone_leitor.insert(0, leitor.telefone)
-    id_leitor.delete(0, 'end')
-    id_leitor.insert(0, leitor.id_leitor)
     
     botao_cadastrar_leitor.configure(text="Salvar alterações", command=salvar_alteracoes_leitor)
     
@@ -814,16 +835,32 @@ def salvar_alteracoes_livro():
 def salvar_alteracoes_leitor():
     global leitor_selecionado
     if leitor_selecionado:
-        leitor_selecionado.nome = nome_leitor.get()
-        leitor_selecionado.telefone = telefone_leitor.get()
-        leitor_selecionado.id_leitor = id_leitor.get()
+        novo_nome = nome_leitor.get()
+        novo_telefone = telefone_leitor.get()
         
-        limpar_frame(frame_resultados_leitores)
-        for l in lista_leitores.listaleitores:
-            criar_card_leitor(l, frame_resultados_leitores)
-        
-        limpar_campos_leitor()
-        leitor_selecionado = None
+        try:
+            conexao = conectar_banco()
+            cursor = conexao.cursor()
+            sql = "UPDATE leitores SET nome = %s, telefone = %s WHERE id = %s"
+            valores = (novo_nome, novo_telefone, leitor_selecionado.id)
+            cursor.execute(sql, valores)
+            conexao.commit()
+            cursor.close()
+            conexao.close()
+            # Se o banco foi atualizado com sucesso, atualiza o objeto local
+            leitor_selecionado.nome = novo_nome
+            leitor_selecionado.telefone = novo_telefone
+            
+            limpar_frame(frame_resultados_leitores)
+            for l in lista_leitores.listaleitores:
+                if l.id == leitor_selecionado.id:
+                    criar_card_leitor(l, frame_resultados_leitores)
+            
+            limpar_campos_leitor()
+            leitor_selecionado = None
+            
+        except Exception as e:
+            print(f"Erro ao atualizar no banco de dados: {e}")
 
 def confirmar_deletar_livro():
     global livro_selecionado
@@ -923,13 +960,29 @@ def confirmar_deletar_leitor():
 def deletar_leitor(dialog):
     global leitor_selecionado
     if leitor_selecionado:
-        lista_leitores.listaleitores.remove(leitor_selecionado)
-        limpar_frame(frame_resultados_leitores)
-        for l in lista_leitores.listaleitores:
-            criar_card_leitor(l, frame_resultados_leitores)
-        limpar_campos_leitor()
-        leitor_selecionado = None
-        dialog.destroy()
+        try:
+            # Primeiro deleta do banco de dados
+            conexao = conectar_banco()
+            cursor = conexao.cursor()
+            sql = "DELETE FROM leitores WHERE id = %s"
+            valores = (leitor_selecionado.id,)
+            cursor.execute(sql, valores)
+            conexao.commit()
+            cursor.close()
+            conexao.close()
+            
+            # Se deletou do banco com sucesso, remove da lista local
+            lista_leitores.listaleitores.remove(leitor_selecionado)
+            limpar_frame(frame_resultados_leitores)
+            for l in lista_leitores.listaleitores:
+                criar_card_leitor(l, frame_resultados_leitores)
+            limpar_campos_leitor()
+            leitor_selecionado = None
+            dialog.destroy()
+            
+        except Exception as e:
+            print(f"Erro ao deletar do banco de dados: {e}")
+            dialog.destroy()
 
 def confirmar_devolucao(emprestimo, card):
     dialog = customtkinter.CTkToplevel(janela)
@@ -991,7 +1044,6 @@ def limpar_campos_livro():
     botao_cadastrar.configure(text="Cadastrar Livro", command=cadastrar_livro)
 
 def limpar_campos_leitor():
-    id_leitor.delete(0, 'end')
     nome_leitor.delete(0, 'end')
     telefone_leitor.delete(0, 'end')
     botao_cadastrar_leitor.configure(text="Cadastrar Leitor", command=cadastrar_leitor)
@@ -1019,19 +1071,37 @@ def cadastrar_livro():
 
 def cadastrar_leitor():
     try:
+        novo_id = gerar_proximo_id()
         leitor = Leitor(
-            id_leitor=id_leitor.get(),
+            id=novo_id,
             nome=nome_leitor.get(),
             telefone=telefone_leitor.get()
         )
-        lista_leitores.cadastrarleitor(leitor)
         
-        limpar_frame(frame_resultados_leitores)
-        for l in lista_leitores.listaleitores:
-            criar_card_leitor(l, frame_resultados_leitores)
+        # Adiciona ao banco de dados
+        try:
+            conexao = conectar_banco()
+            cursor = conexao.cursor()
+            sql = "INSERT INTO leitores (id, nome, telefone) VALUES (%s, %s, %s)"
+            valores = (novo_id, leitor.nome, leitor.telefone)
+            cursor.execute(sql, valores)
+            conexao.commit()
+            cursor.close()
+            conexao.close()
+            
         
-        limpar_campos_leitor()
-    except:
+            lista_leitores.cadastrarleitor(leitor)
+            
+            limpar_frame(frame_resultados_leitores)
+            for l in lista_leitores.listaleitores:
+                criar_card_leitor(l, frame_resultados_leitores)
+            
+            limpar_campos_leitor()
+        except Exception as e:
+            print(f"Erro ao inserir no banco de dados: {e}")
+            
+    except Exception as e:
+        print(f"Erro ao cadastrar leitor: {e}")
         pass
 
 def registrar_emprestimo():
@@ -1089,7 +1159,7 @@ def pesquisar_leitores():
             criar_card_leitor(leitor, frame_resultados_leitores)
     else:
         for leitor in lista_leitores.listaleitores:
-            if termo in leitor.nome.lower() or termo in leitor.telefone or termo in str(leitor.id_leitor):
+            if termo in leitor.nome.lower() or termo in leitor.telefone or termo in str(leitor.id):
                 criar_card_leitor(leitor, frame_resultados_leitores)
 
 def pesquisar_emprestimos():
@@ -1114,6 +1184,17 @@ def pesquisar_leitores_com_limpa():
 def pesquisar_emprestimos_com_limpa():
     limpar_frame(frame_resultados_emprestimos)
     pesquisar_emprestimos()
+
+def inserir_leitor():
+    conexao = conectar_banco()
+    cursor = conexao.cursor()
+    cursor.execute("INSERT INTO leitores (nome, telefone) VALUES (%s, %s)", 
+    (nome_leitor.get(), telefone_leitor.get()))
+    conexao.commit()
+    cursor.close()
+    conexao.close()
+    limpar_campos_leitor()
+
 
 imagem_livro.configure(command=selecionar_capa)
 botao_cadastrar.configure(command=cadastrar_livro)

@@ -2,13 +2,13 @@ import datetime
 
 
 class Leitor:
-    def __init__(self, id_leitor, nome, telefone):
-        self.id_leitor = id_leitor
+    def __init__(self, id, nome, telefone):
+        self.id = id
         self.nome = nome
         self.telefone = telefone
 
     def __str__(self):
-        return "Nome:{} ID:{} Telefone:{}".format(self.nome, self.id_leitor, self.telefone)
+        return "Nome:{} ID:{} Telefone:{}".format(self.nome, self.id, self.telefone)
 
 
 class Livro:
@@ -52,24 +52,24 @@ class ListaLeitores:
     def cadastrarleitor(self, leitor: Leitor):
         self.listaleitores.append(leitor)
 
-    def atualizarleitor(self, id_leitor, novo_telefone=None, novo_nome=None):
+    def atualizarleitor(self, id, novo_telefone=None, novo_nome=None):
         for i in self.listaleitores:
-            if i.id_leitor == id_leitor:
+            if i.id == id:
                 if novo_telefone != None:
                     i.telefone = novo_telefone
                 if novo_nome != None:
                     i.nome = novo_nome
-                return 'Telefone do Leitor {} atualizado para {}'.format(id_leitor, novo_telefone)
+                return 'Telefone do Leitor {} atualizado para {}'.format(id, novo_telefone)
         return 'Leitor nao encontrado'
 
-    def deletarleitor(self, id_leitor):
+    def deletarleitor(self, id):
         for i in self.listaleitores:
-            if i.id_leitor == id_leitor:
+            if i.id == id:
                 del self.listaleitores[i]
 
-    def consultarleitor(self, id_leitor):
+    def consultarleitor(self, id):
         for i in self.listaleitores:
-            if i.id_leitor == id_leitor:
+            if i.id == id:
                 return i
         return "Leitor nao encontrado"
 
@@ -104,24 +104,3 @@ class ListaLivros:
                 return 'Livro Disponivel'
         return 'Livro Indisponivel'
 
-
-lista_leitores = ListaLeitores("Livraria Central")
-lista_livros = ListaLivros("Livraria Central")
-
-leitor1 = Leitor(1, "Diego", "1111-1111")
-leitor2 = Leitor(2, "Duda amor", "2222-2222")
-
-lista_leitores.cadastrarleitor(leitor1)
-lista_leitores.cadastrarleitor(leitor2)
-
-livro1 = Livro(3, 'Arte da guerra', 'Sun Tzu', 'edicao top', 2)
-lista_livros.cadastrar_livro(livro1)
-
-emprestimo1=Emprestimo(livro1,leitor1)
-emprestimo1.registrar_emprestimo()
-emprestimo1.registrardevolucao()
-emprestimo1.registrardevolucao()
-emprestimo1.registrardevolucao()
-emprestimo1.registrardevolucao()
-emprestimo1.registrardevolucao()
-print(lista_livros.consultarlivro(3))
