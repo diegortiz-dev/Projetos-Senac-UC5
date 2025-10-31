@@ -5,6 +5,15 @@ from tkinter import filedialog
 from conexao import conectar_banco
 from main import Livro, Leitor, Emprestimo, ListaLivros, ListaLeitores
 
+
+def mostrar_frame_leitores_carregando():
+    mostrar_frame_leitores()
+    carregar_leitores_do_banco()
+
+def mostrar_frame_livros_carregando():
+    mostrar_frame_livros()
+    carregar_livros_do_banco()
+
 lista_livros = ListaLivros("TELivraria")
 lista_leitores = ListaLeitores("TELivraria")
 lista_emprestimos = []
@@ -13,40 +22,6 @@ livro_selecionado = None
 leitor_selecionado = None
 
 
-def mostrar_frame_leitores_carregando():
-    mostrar_frame_leitores()
-    carregar_leitores_do_banco()
-    
-def carregar_leitores_do_banco():
-    for i in frame_resultados_leitores.winfo_children():
-        i.destroy()
-
-    try:
-        conexao = conectar_banco()
-        cursor = conexao.cursor()
-        cursor.execute("SELECT id, nome, telefone FROM leitores")
-        resultados = cursor.fetchall()
-
-        for resultado in resultados:
-            leitor = Leitor(
-                id=str(resultado[0]),
-                nome=resultado[1],
-                telefone=resultado[2]
-            )
-            lista_leitores.cadastrarleitor(leitor)
-            criar_card_leitor(leitor, frame_resultados_leitores)
-
-        cursor.close()
-        conexao.close()
-    except Exception as e:
-        print(f"Erro ao carregar leitores do banco: {e}")
-
-
-def gerar_proximo_id():
-    if not lista_leitores.listaleitores:
-        return "1" 
-    ids = [int(leitor.id) for leitor in lista_leitores.listaleitores]
-    return str(max(ids) + 1)
 
 customtkinter.set_appearance_mode("System")
 customtkinter.set_default_color_theme("blue")
@@ -55,6 +30,7 @@ janela = customtkinter.CTk()
 janela.title("Interface Livraria")
 janela.geometry("1920x1080")
 janela.configure(fg_color="#a2a2a2")
+
 
 frame_header = customtkinter.CTkFrame(
     master=janela,
@@ -143,7 +119,7 @@ botao_livros = customtkinter.CTkButton(
     corner_radius=30,
     fg_color="#003e7e",
     bg_color="#001126",
-    command=mostrar_frame_livros
+    command=mostrar_frame_livros_carregando
 )
 botao_livros.grid(row=0, column=2, pady=20, padx=20, sticky="w")
 
@@ -825,12 +801,42 @@ def salvar_alteracoes_livro():
         livro_selecionado.edicao = edicao_livro.get()
         livro_selecionado.capa_path = capa_livro_path
         
+        try:
+            conexao = conectar_banco()
+            cursor = conexao.cursor()
+            sql = "UPDATE livros SET titulo = %s, autor = %s, quantidade_exemplares = %s, numero_isbn = %s, edicao = %s WHERE numero_isbn = %s"
+            valores = (livro_selecionado.titulo, livro_selecionado.autor, livro_selecionado.qtd_exemplar, livro_selecionado.isbn, livro_selecionado.edicao, livro_selecionado.isbn)
+            cursor.execute(sql, valores)
+            conexao.commit()
+            cursor.close()
+            conexao.close()
+            # Se o banco foi atualizado com sucesso, atualiza o objeto local
+            livro_selecionado.titulo = nome_livro.get()
+            livro_selecionado.autor = autor_livro.get()
+            livro_selecionado.qtd_exemplar = int(quantidade_livro.get())
+            livro_selecionado.isbn = isbn_livro.get()
+            livro_selecionado.edicao = edicao_livro.get()
+
+            limpar_frame(frame_resultados_livros)
+            for l in lista_livros.listalivros:
+                if l.isbn == livro_selecionado.isbn:
+                    criar_card_livro(l, frame_resultados_livros)
+
+            limpar_campos_livro()
+            livro_selecionado = None
+
+            for i in frame_resultados_livros.winfo_children():
+                    i.destroy()
+
+        except Exception as e:
+            print(f"Erro ao atualizar no banco de dados: {e}")
         limpar_frame(frame_resultados_livros)
         for l in lista_livros.listalivros:
             criar_card_livro(l, frame_resultados_livros)
         
         limpar_campos_livro()
         livro_selecionado = None
+
 
 def salvar_alteracoes_leitor():
     global leitor_selecionado
@@ -859,6 +865,8 @@ def salvar_alteracoes_leitor():
             limpar_campos_leitor()
             leitor_selecionado = None
             
+            mostrar_frame_leitores_carregando()
+
         except Exception as e:
             print(f"Erro ao atualizar no banco de dados: {e}")
 
@@ -907,13 +915,29 @@ def confirmar_deletar_livro():
 def deletar_livro(dialog):
     global livro_selecionado
     if livro_selecionado:
-        lista_livros.listalivros.remove(livro_selecionado)
-        limpar_frame(frame_resultados_livros)
-        for l in lista_livros.listalivros:
-            criar_card_livro(l, frame_resultados_livros)
-        limpar_campos_livro()
-        livro_selecionado = None
-        dialog.destroy()
+        try:
+            # Primeiro deleta do banco de dados
+            conexao = conectar_banco()
+            cursor = conexao.cursor()
+            sql = "DELETE FROM livros WHERE numero_isbn = %s"
+            valores = (livro_selecionado.isbn,)
+            cursor.execute(sql, valores)
+            conexao.commit()
+            cursor.close()
+            conexao.close()
+            
+            # Se deletou do banco com sucesso, remove da lista local
+            lista_livros.listalivros.remove(livro_selecionado)
+            limpar_frame(frame_resultados_livros)
+            for l in lista_livros.listalivros:
+                criar_card_livro(l, frame_resultados_livros)
+            limpar_campos_livro()
+            livro_selecionado = None
+            dialog.destroy()
+            
+        except Exception as e:
+            print(f"Erro ao deletar do banco de dados: {e}")
+            dialog.destroy()
 
 def confirmar_deletar_leitor():
     global leitor_selecionado
@@ -1060,7 +1084,18 @@ def cadastrar_livro():
         )
         livro.capa_path = capa_livro_path
         lista_livros.cadastrar_livro(livro)
-        
+         # Adiciona ao banco de dados
+        try:
+            conexao = conectar_banco()
+            cursor = conexao.cursor()
+            sql = "INSERT INTO livros (numero_isbn, titulo, autor, edicao, quantidade_exemplares) VALUES (%s, %s, %s, %s, %s)"
+            valores = (livro.isbn, livro.titulo, livro.autor, livro.edicao, livro.qtd_exemplar)
+            cursor.execute(sql, valores)
+            conexao.commit()
+            cursor.close()
+            conexao.close()
+        except Exception as e:
+            print(f"Erro ao inserir no banco de dados: {e}")
         limpar_frame(frame_resultados_livros)
         for l in lista_livros.listalivros:
             criar_card_livro(l, frame_resultados_livros)
@@ -1103,6 +1138,7 @@ def cadastrar_leitor():
     except Exception as e:
         print(f"Erro ao cadastrar leitor: {e}")
         pass
+    mostrar_frame_leitores_carregando()
 
 def registrar_emprestimo():
     try:
@@ -1143,6 +1179,8 @@ def registrar_emprestimo():
         pass
 
 def pesquisar_livros():
+    for i in frame_resultados_livros.winfo_children():
+        i.destroy() 
     termo = entrada_pesquisas.get().lower()
     if termo == "":
         for livro in lista_livros.listalivros:
@@ -1153,13 +1191,15 @@ def pesquisar_livros():
                 criar_card_livro(livro, frame_resultados_livros)
 
 def pesquisar_leitores():
+    for i in frame_resultados_leitores.winfo_children():
+        i.destroy()
     termo = entrada_pesquisa_leitores.get().lower()
     if termo == "":
         for leitor in lista_leitores.listaleitores:
             criar_card_leitor(leitor, frame_resultados_leitores)
     else:
         for leitor in lista_leitores.listaleitores:
-            if termo in leitor.nome.lower() or termo in leitor.telefone or termo in str(leitor.id):
+            if termo in leitor.nome.lower() or termo in str(leitor.id):
                 criar_card_leitor(leitor, frame_resultados_leitores)
 
 def pesquisar_emprestimos():
@@ -1194,7 +1234,63 @@ def inserir_leitor():
     cursor.close()
     conexao.close()
     limpar_campos_leitor()
+    
+def carregar_leitores_do_banco():
+    for i in frame_resultados_leitores.winfo_children():
+        i.destroy()
 
+    try:
+        conexao = conectar_banco()
+        cursor = conexao.cursor()
+        cursor.execute("SELECT id, nome, telefone FROM leitores")
+        resultados = cursor.fetchall()
+
+        for resultado in resultados:
+            leitor = Leitor(
+                id=str(resultado[0]),
+                nome=resultado[1],
+                telefone=resultado[2]
+            )
+            lista_leitores.cadastrarleitor(leitor)
+            criar_card_leitor(leitor, frame_resultados_leitores)
+
+        cursor.close()
+        conexao.close()
+    except Exception as e:
+        print(f"Erro ao carregar leitores do banco: {e}")
+
+def carregar_livros_do_banco():
+    for i in frame_resultados_livros.winfo_children():
+        i.destroy()
+
+    try:
+        conexao = conectar_banco()
+        cursor = conexao.cursor()
+        cursor.execute("SELECT numero_isbn, titulo, autor, edicao, quantidade_exemplares FROM livros")
+        resultados = cursor.fetchall()
+
+        for resultado in resultados:
+            livro = Livro(
+                isbn=str(resultado[0]),
+                titulo=resultado[1],
+                autor=resultado[2],
+                edicao=resultado[3],
+                qtd_exemplar=resultado[4]
+            )
+            lista_livros.cadastrar_livro(livro)
+            criar_card_livro(livro, frame_resultados_livros)
+
+        cursor.close()
+        conexao.close()
+    except Exception as e:
+        print(f"Erro ao carregar livros do banco: {e}")
+
+
+def gerar_proximo_id():
+    if not lista_leitores.listaleitores:
+        return "1" 
+    ids = [int(leitor.id) for leitor in lista_leitores.listaleitores]
+    return str(max(ids) + 1)
 
 imagem_livro.configure(command=selecionar_capa)
 botao_cadastrar.configure(command=cadastrar_livro)
@@ -1205,4 +1301,6 @@ botao_pesquisar_leitores.configure(command=pesquisar_leitores_com_limpa)
 botao_pesquisar_emprestimos.configure(command=pesquisar_emprestimos_com_limpa)
 
 frame_livros.pack(fill="both", expand=True)
+
+mostrar_frame_leitores_carregando()
 janela.mainloop()

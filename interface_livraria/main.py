@@ -53,6 +53,7 @@ class ListaLeitores:
         self.listaleitores.append(leitor)
 
     def atualizarleitor(self, id, novo_telefone=None, novo_nome=None):
+        
         for i in self.listaleitores:
             if i.id == id:
                 if novo_telefone != None:
