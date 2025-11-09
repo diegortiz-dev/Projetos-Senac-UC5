@@ -138,6 +138,10 @@ botao_leitores = customtkinter.CTkButton(
 )
 botao_leitores.grid(row=0, column=3, pady=20, padx=20, sticky="w")
 
+def mostrar_frame_emprestimos_carregando():
+    mostrar_frame_emprestimos()
+    carregar_emprestimos_do_banco()
+
 botao_emprestimos = customtkinter.CTkButton(
     master=frame_header,
     text="Empréstimos",
@@ -148,7 +152,7 @@ botao_emprestimos = customtkinter.CTkButton(
     corner_radius=30,
     fg_color="#003e7e",
     bg_color="#001126",
-    command=mostrar_frame_emprestimos
+    command=mostrar_frame_emprestimos_carregando
 )
 botao_emprestimos.grid(row=0, column=4, pady=20, padx=20, sticky="w")
 
@@ -804,8 +808,8 @@ def salvar_alteracoes_livro():
         try:
             conexao = conectar_banco()
             cursor = conexao.cursor()
-            sql = "UPDATE livros SET titulo = %s, autor = %s, quantidade_exemplares = %s, numero_isbn = %s, edicao = %s WHERE numero_isbn = %s"
-            valores = (livro_selecionado.titulo, livro_selecionado.autor, livro_selecionado.qtd_exemplar, livro_selecionado.isbn, livro_selecionado.edicao, livro_selecionado.isbn)
+            sql = "UPDATE livros SET titulo = %s, autor = %s, quantidade_exemplares = %s, numero_isbn = %s, edicao = %s, capa_path = %s WHERE numero_isbn = %s"
+            valores = (livro_selecionado.titulo, livro_selecionado.autor, livro_selecionado.qtd_exemplar, livro_selecionado.isbn, livro_selecionado.edicao, capa_livro_path, livro_selecionado.isbn)
             cursor.execute(sql, valores)
             conexao.commit()
             cursor.close()
@@ -1050,6 +1054,27 @@ def confirmar_devolucao(emprestimo, card):
 
 def devolver_livro(emprestimo, card, dialog):
     emprestimo.registrardevolucao()
+    
+    # Atualiza no banco de dados
+    try:
+        conexao = conectar_banco()
+        cursor = conexao.cursor()
+        
+        # Marca devolução no banco
+        sql = "UPDATE emprestimos SET data_devolucao = %s WHERE leitor_id = %s AND livro_isbn = %s AND data_devolucao IS NULL"
+        valores = (emprestimo.datadev, emprestimo.leitor.id, emprestimo.livro.isbn)
+        cursor.execute(sql, valores)
+        
+        # Atualiza quantidade no banco
+        sql_update = "UPDATE livros SET quantidade_exemplares = %s WHERE numero_isbn = %s"
+        cursor.execute(sql_update, (emprestimo.livro.qtd_exemplar, emprestimo.livro.isbn))
+        
+        conexao.commit()
+        cursor.close()
+        conexao.close()
+    except Exception as e:
+        print(f"Erro ao atualizar devolução no banco: {e}")
+    
     card.destroy()
     limpar_frame(frame_resultados_livros)
     for l in lista_livros.listalivros:
@@ -1084,18 +1109,19 @@ def cadastrar_livro():
         )
         livro.capa_path = capa_livro_path
         lista_livros.cadastrar_livro(livro)
-         # Adiciona ao banco de dados
+    
         try:
             conexao = conectar_banco()
             cursor = conexao.cursor()
-            sql = "INSERT INTO livros (numero_isbn, titulo, autor, edicao, quantidade_exemplares) VALUES (%s, %s, %s, %s, %s)"
-            valores = (livro.isbn, livro.titulo, livro.autor, livro.edicao, livro.qtd_exemplar)
+            sql = "INSERT INTO livros (numero_isbn, titulo, autor, edicao, quantidade_exemplares, capa_path) VALUES (%s, %s, %s, %s, %s, %s)"
+            valores = (livro.isbn, livro.titulo, livro.autor, livro.edicao, livro.qtd_exemplar, capa_livro_path)
             cursor.execute(sql, valores)
             conexao.commit()
             cursor.close()
             conexao.close()
         except Exception as e:
             print(f"Erro ao inserir no banco de dados: {e}")
+        
         limpar_frame(frame_resultados_livros)
         for l in lista_livros.listalivros:
             criar_card_livro(l, frame_resultados_livros)
@@ -1164,10 +1190,26 @@ def registrar_emprestimo():
             if "Sem exemplares" not in resultado:
                 lista_emprestimos.append(emprestimo)
                 
-                limpar_frame(frame_resultados_emprestimos)
-                for e in lista_emprestimos:
-                    if e.datadev is None:
-                        criar_card_emprestimo(e, frame_resultados_emprestimos)
+                # Salva no banco de dados
+                try:
+                    conexao = conectar_banco()
+                    cursor = conexao.cursor()
+                    sql = "INSERT INTO emprestimos (leitor_id, livro_isbn, data_emprestimo) VALUES (%s, %s, %s)"
+                    valores = (leitor.id, livro.isbn, emprestimo.dataempr)
+                    cursor.execute(sql, valores)
+                    conexao.commit()
+                    
+                    # Atualiza quantidade no banco
+                    sql_update = "UPDATE livros SET quantidade_exemplares = %s WHERE numero_isbn = %s"
+                    cursor.execute(sql_update, (livro.qtd_exemplar, livro.isbn))
+                    conexao.commit()
+                    
+                    cursor.close()
+                    conexao.close()
+                except Exception as e:
+                    print(f"Erro ao salvar empréstimo no banco: {e}")
+                
+                carregar_emprestimos_do_banco()
                 
                 limpar_frame(frame_resultados_livros)
                 for l in lista_livros.listalivros:
@@ -1236,6 +1278,9 @@ def inserir_leitor():
     limpar_campos_leitor()
     
 def carregar_leitores_do_banco():
+    # Limpa a lista local primeiro
+    lista_leitores.listaleitores.clear()
+    
     for i in frame_resultados_leitores.winfo_children():
         i.destroy()
 
@@ -1260,13 +1305,16 @@ def carregar_leitores_do_banco():
         print(f"Erro ao carregar leitores do banco: {e}")
 
 def carregar_livros_do_banco():
+    # Limpa a lista local primeiro
+    lista_livros.listalivros.clear()
+    
     for i in frame_resultados_livros.winfo_children():
         i.destroy()
 
     try:
         conexao = conectar_banco()
         cursor = conexao.cursor()
-        cursor.execute("SELECT numero_isbn, titulo, autor, edicao, quantidade_exemplares FROM livros")
+        cursor.execute("SELECT numero_isbn, titulo, autor, edicao, quantidade_exemplares, capa_path FROM livros")
         resultados = cursor.fetchall()
 
         for resultado in resultados:
@@ -1277,6 +1325,7 @@ def carregar_livros_do_banco():
                 edicao=resultado[3],
                 qtd_exemplar=resultado[4]
             )
+            livro.capa_path = resultado[5] if resultado[5] else None
             lista_livros.cadastrar_livro(livro)
             criar_card_livro(livro, frame_resultados_livros)
 
@@ -1287,10 +1336,70 @@ def carregar_livros_do_banco():
 
 
 def gerar_proximo_id():
-    if not lista_leitores.listaleitores:
-        return "1" 
-    ids = [int(leitor.id) for leitor in lista_leitores.listaleitores]
-    return str(max(ids) + 1)
+    try:
+        conexao = conectar_banco()
+        cursor = conexao.cursor()
+        cursor.execute("SELECT MAX(id) FROM leitores")
+        resultado = cursor.fetchone()
+        cursor.close()
+        conexao.close()
+        
+        if resultado[0] is None:
+            return "1"
+        return str(resultado[0] + 1)
+    except:
+        if not lista_leitores.listaleitores:
+            return "1" 
+        ids = [int(leitor.id) for leitor in lista_leitores.listaleitores]
+        return str(max(ids) + 1)
+
+def carregar_emprestimos_do_banco():
+    global lista_emprestimos
+    lista_emprestimos = []
+    
+    for i in frame_resultados_emprestimos.winfo_children():
+        i.destroy()
+    
+    try:
+        conexao = conectar_banco()
+        cursor = conexao.cursor()
+        cursor.execute("""
+            SELECT e.leitor_id, e.livro_isbn, e.data_emprestimo, e.data_devolucao,
+                   l.nome, l.telefone, 
+                   li.titulo, li.autor, li.edicao, li.quantidade_exemplares
+            FROM emprestimos e
+            JOIN leitores l ON e.leitor_id = l.id
+            JOIN livros li ON e.livro_isbn = li.numero_isbn
+            WHERE e.data_devolucao IS NULL
+        """)
+        resultados = cursor.fetchall()
+        
+        for resultado in resultados:
+            leitor = Leitor(
+                id=str(resultado[0]),
+                nome=resultado[4],
+                telefone=resultado[5]
+            )
+            
+            livro = Livro(
+                isbn=str(resultado[1]),
+                titulo=resultado[6],
+                autor=resultado[7],
+                edicao=resultado[8],
+                qtd_exemplar=resultado[9]
+            )
+            
+            emprestimo = Emprestimo(livro, leitor)
+            emprestimo.dataempr = resultado[2]
+            emprestimo.datadev = resultado[3]
+            
+            lista_emprestimos.append(emprestimo)
+            criar_card_emprestimo(emprestimo, frame_resultados_emprestimos)
+        
+        cursor.close()
+        conexao.close()
+    except Exception as e:
+        print(f"Erro ao carregar empréstimos do banco: {e}")
 
 imagem_livro.configure(command=selecionar_capa)
 botao_cadastrar.configure(command=cadastrar_livro)
@@ -1300,7 +1409,7 @@ botao_pesquisar.configure(command=pesquisar_livros_com_limpa)
 botao_pesquisar_leitores.configure(command=pesquisar_leitores_com_limpa)
 botao_pesquisar_emprestimos.configure(command=pesquisar_emprestimos_com_limpa)
 
+# Inicializa a aplicação
 frame_livros.pack(fill="both", expand=True)
-
-mostrar_frame_leitores_carregando()
+mostrar_frame_livros_carregando()
 janela.mainloop()
