@@ -14,3 +14,8 @@ __pycache__/
 # Sistema
 .DS_Store
 Thumbs.db
+
+# Node.js (desnecessário)
+package.json
+package-lock.json
+node_modules/
